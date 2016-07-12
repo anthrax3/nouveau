@@ -298,7 +298,7 @@ nvkm_pstate_prog(struct nvkm_clk *clk, int pstate_idx)
 }
 
 static void
-nvkm_pstate_work(struct work_struct *work)
+nvkm_clk_update_work(struct work_struct *work)
 {
 	struct nvkm_clk *clk = container_of(work, typeof(*clk), work);
 	struct nvkm_subdev *subdev = &clk->subdev;
@@ -333,9 +333,15 @@ nvkm_pstate_work(struct work_struct *work)
 	nvkm_notify_get(&clk->pwrsrc_ntfy);
 }
 
-static int
-nvkm_pstate_calc(struct nvkm_clk *clk, bool wait)
+int
+nvkm_clk_update(struct nvkm_clk *clk, bool wait)
 {
+	if (!clk)
+		return -EINVAL;
+
+	if (!clk->allow_reclock)
+		return -ENODEV;
+
 	atomic_set(&clk->waiting, 1);
 	schedule_work(&clk->work);
 	if (wait)
@@ -525,7 +531,7 @@ nvkm_clk_ustate(struct nvkm_clk *clk, int req, int pwr)
 	if (ret >= 0) {
 		if (ret -= 2, pwr) clk->ustate_ac = ret;
 		else		   clk->ustate_dc = ret;
-		return nvkm_pstate_calc(clk, true);
+		return nvkm_clk_update(clk, true);
 	}
 	return ret;
 }
@@ -537,7 +543,7 @@ nvkm_clk_astate(struct nvkm_clk *clk, int req, int rel, bool wait)
 	if ( rel) clk->astate += rel;
 	clk->astate = min(clk->astate, clk->pstates_cnt - 1);
 	clk->astate = max(clk->astate, 0);
-	return nvkm_pstate_calc(clk, wait);
+	return nvkm_clk_update(clk, wait);
 }
 
 int
@@ -546,7 +552,7 @@ nvkm_clk_tstate(struct nvkm_clk *clk, int temp)
 	if (clk->temp == temp)
 		return 0;
 	clk->temp = temp;
-	return nvkm_pstate_calc(clk, false);
+	return nvkm_clk_update(clk, false);
 }
 
 static int
@@ -554,7 +560,7 @@ nvkm_clk_pwrsrc(struct nvkm_notify *notify)
 {
 	struct nvkm_clk *clk =
 		container_of(notify, typeof(*clk), pwrsrc_ntfy);
-	nvkm_pstate_calc(clk, false);
+	nvkm_clk_update(clk, false);
 	return NVKM_NOTIFY_DROP;
 }
 
@@ -608,7 +614,7 @@ nvkm_clk_init(struct nvkm_subdev *subdev)
 	clk->astate = clk->pstates_cnt - 1;
 	clk->pstate_idx = NVKM_CLK_PSTATE_BOOT;
 	clk->temp = 90; /* reasonable default value */
-	nvkm_pstate_calc(clk, true);
+	nvkm_clk_update(clk, true);
 	return 0;
 }
 
@@ -665,7 +671,7 @@ nvkm_clk_ctor(const struct nvkm_clk_func *func, struct nvkm_device *device,
 	clk->ustate_dc = NVKM_CLK_PSTATE_BOOT;
 	clk->allow_reclock = allow_reclock;
 
-	INIT_WORK(&clk->work, nvkm_pstate_work);
+	INIT_WORK(&clk->work, nvkm_clk_update_work);
 	init_waitqueue_head(&clk->wait);
 	atomic_set(&clk->waiting, 0);
 
