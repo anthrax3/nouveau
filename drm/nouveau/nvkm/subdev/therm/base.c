@@ -32,17 +32,12 @@ nvkm_therm_temp_get(struct nvkm_therm *therm, int *val)
 }
 
 static int
-nvkm_therm_update_trip(struct nvkm_therm *therm)
+nvkm_therm_update_trip(struct nvkm_therm *therm, int temp)
 {
-	int temp, ret;
 	struct nvbios_therm_trip_point *trip = therm->fan->bios.trip,
 				       *cur_trip = NULL,
 				       *last_trip = therm->last_trip;
 	u16 duty, i;
-
-	ret = therm->func->temp_get(therm, &temp);
-	if (ret < 0)
-		return ret;
 
 	/* look for the trip point corresponding to the current temperature */
 	cur_trip = NULL;
@@ -69,14 +64,9 @@ nvkm_therm_update_trip(struct nvkm_therm *therm)
 
 static int
 nvkm_therm_compute_linear_duty(struct nvkm_therm *therm, u8 linear_min_temp,
-                               u8 linear_max_temp)
+			       u8 linear_max_temp, int temp)
 {
-	int temp, ret;
 	u16 duty;
-
-	ret = therm->func->temp_get(therm, &temp);
-	if (ret < 0)
-		return ret;
 
 	/* handle the non-linear part first */
 	if (temp < linear_min_temp)
@@ -93,22 +83,22 @@ nvkm_therm_compute_linear_duty(struct nvkm_therm *therm, u8 linear_min_temp,
 }
 
 static int
-nvkm_therm_update_linear(struct nvkm_therm *therm)
+nvkm_therm_update_linear(struct nvkm_therm *therm, int temp)
 {
 	u8  min = therm->fan->bios.linear_min_temp;
 	u8  max = therm->fan->bios.linear_max_temp;
-	return nvkm_therm_compute_linear_duty(therm, min, max);
+	return nvkm_therm_compute_linear_duty(therm, min, max, temp);
 }
 
 static int
-nvkm_therm_update_linear_fallback(struct nvkm_therm *therm)
+nvkm_therm_update_linear_fallback(struct nvkm_therm *therm, int temp)
 {
 	u8 max = therm->bios_sensor.thrs_fan_boost.temp;
-	return nvkm_therm_compute_linear_duty(therm, 30, max);
+	return nvkm_therm_compute_linear_duty(therm, 30, max, temp);
 }
 
 static void
-nvkm_therm_update(struct nvkm_therm *therm, int mode)
+nvkm_therm_update(struct nvkm_therm *therm, int temp, int mode)
 {
 	struct nvkm_subdev *subdev = &therm->subdev;
 	struct nvkm_timer *tmr = subdev->device->timer;
@@ -130,16 +120,17 @@ nvkm_therm_update(struct nvkm_therm *therm, int mode)
 	case NVKM_THERM_CTRL_AUTO:
 		switch(therm->fan->bios.fan_mode) {
 		case NVBIOS_THERM_FAN_TRIP:
-			duty = nvkm_therm_update_trip(therm);
+			duty = nvkm_therm_update_trip(therm, temp);
 			break;
 		case NVBIOS_THERM_FAN_LINEAR:
-			duty = nvkm_therm_update_linear(therm);
+			duty = nvkm_therm_update_linear(therm, temp);
 			break;
 		case NVBIOS_THERM_FAN_OTHER:
 			if (therm->cstate)
 				duty = therm->cstate;
 			else
-				duty = nvkm_therm_update_linear_fallback(therm);
+				duty = nvkm_therm_update_linear_fallback(therm,
+									 temp);
 			break;
 		}
 		immd = false;
@@ -167,7 +158,7 @@ nvkm_therm_cstate(struct nvkm_therm *therm, int fan, int dir)
 		    (dir > 0 && fan > therm->cstate)) {
 		nvkm_debug(subdev, "default fan speed -> %d%%\n", fan);
 		therm->cstate = fan;
-		nvkm_therm_update(therm, -1);
+		nvkm_therm_update(therm, therm->last_temp, -1);
 	}
 	return 0;
 }
@@ -175,9 +166,12 @@ nvkm_therm_cstate(struct nvkm_therm *therm, int fan, int dir)
 static void
 nvkm_therm_alarm(struct nvkm_alarm *alarm)
 {
+	int temp;
 	struct nvkm_therm *therm =
 	       container_of(alarm, struct nvkm_therm, alarm);
-	nvkm_therm_update(therm, -1);
+	if (nvkm_therm_temp_get(therm, &temp) >= 0)
+		therm->last_temp = temp;
+	nvkm_therm_update(therm, therm->last_temp, -1);
 }
 
 int
@@ -208,7 +202,7 @@ nvkm_therm_fan_mode(struct nvkm_therm *therm, int mode)
 		return 0;
 
 	nvkm_debug(subdev, "fan management: %s\n", name[mode]);
-	nvkm_therm_update(therm, mode);
+	nvkm_therm_update(therm, therm->last_temp, mode);
 	return 0;
 }
 
@@ -343,10 +337,14 @@ nvkm_therm_oneinit(struct nvkm_subdev *subdev)
 static int
 nvkm_therm_init(struct nvkm_subdev *subdev)
 {
+	int temp;
 	struct nvkm_therm *therm = nvkm_therm(subdev);
 
 	if (therm->func->init)
 		therm->func->init(therm);
+
+	nvkm_therm_temp_get(therm, &temp);
+	therm->last_temp = temp;
 
 	if (therm->suspend >= 0) {
 		/* restore the pwm value only when on manual or auto mode */
