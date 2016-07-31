@@ -307,15 +307,14 @@ nvkm_pstate_work(struct work_struct *work)
 		return;
 	clk->pwrsrc = power_supply_is_system_supplied();
 
-	nvkm_trace(subdev, "P %d PWR %d U(AC) %d U(DC) %d A %d T %d°C D %d\n",
+	nvkm_trace(subdev, "P %d PWR %d U(AC) %d U(DC) %d A %d T %d°C\n",
 		   clk->pstate_idx, clk->pwrsrc, clk->ustate_ac, clk->ustate_dc,
-		   clk->astate, clk->temp, clk->dstate);
+		   clk->astate, clk->temp);
 
 	pstate_idx = clk->pwrsrc ? clk->ustate_ac : clk->ustate_dc;
 	if (clk->state_nr && pstate_idx != -1) {
 		pstate_idx = (pstate_idx < 0) ? clk->astate : pstate_idx;
 		pstate_idx = min(pstate_idx, clk->state_nr - 1);
-		pstate_idx = max(pstate_idx, clk->dstate);
 	} else {
 		pstate_idx = clk->pstate_idx = -1;
 	}
@@ -549,16 +548,6 @@ nvkm_clk_tstate(struct nvkm_clk *clk, int temp)
 	return nvkm_pstate_calc(clk, false);
 }
 
-int
-nvkm_clk_dstate(struct nvkm_clk *clk, int req, int rel)
-{
-	if (!rel) clk->dstate  = req;
-	if ( rel) clk->dstate += rel;
-	clk->dstate = min(clk->dstate, clk->state_nr - 1);
-	clk->dstate = max(clk->dstate, 0);
-	return nvkm_pstate_calc(clk, true);
-}
-
 static int
 nvkm_clk_pwrsrc(struct nvkm_notify *notify)
 {
@@ -616,7 +605,6 @@ nvkm_clk_init(struct nvkm_subdev *subdev)
 		return clk->func->init(clk);
 
 	clk->astate = clk->state_nr - 1;
-	clk->dstate = 0;
 	clk->pstate_idx = -1;
 	clk->temp = 90; /* reasonable default value */
 	nvkm_pstate_calc(clk, true);
