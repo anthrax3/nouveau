@@ -104,6 +104,8 @@ struct nvkm_clk {
 	struct nvkm_cstate *cstate;
 	int exp_cstateid;
 	int temp;
+	int max_temp;
+	int relax_temp;
 
 	bool allow_reclock;
 #define NVKM_CLK_BOOST_NONE 0x0
