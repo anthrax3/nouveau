@@ -84,28 +84,31 @@ nvkm_cstate_valid(struct nvkm_clk *clk, struct nvkm_cstate *cstate,
 	const struct nvkm_domain *domain = clk->domains;
 	struct nvkm_volt *volt = clk->subdev.device->volt;
 	int voltage;
+	u32 limit;
 
-	while (domain && domain->name != nv_clk_src_max) {
-		if (domain->flags & NVKM_CLK_DOM_FLAG_VPSTATE) {
-			u32 freq = cstate->domain[domain->name];
-			u32 limit;
-			switch (clk->boost_mode) {
-			case NVKM_CLK_BOOST_NONE:
-				limit = clk->base_limit.max_khz;
-				if (limit)
-					break;
-			case NVKM_CLK_BOOST_BIOS:
-				limit = clk->boost_limit.max_khz;
-				break;
-			default:
-				limit = 0;
-				break;
-			}
+	switch (clk->boost_mode) {
+	case NVKM_CLK_BOOST_NONE:
+		limit = clk->base_limit.max_khz;
+		if (limit)
+			break;
+	case NVKM_CLK_BOOST_BIOS:
+		limit = clk->boost_limit.max_khz;
+		break;
+	default:
+		limit = 0;
+		break;
+	}
 
+	if (limit) {
+		for (; domain && domain->name != nv_clk_src_max; domain++) {
+			u32 freq;
+
+			if (!(domain->flags & NVKM_CLK_DOM_FLAG_VPSTATE))
+				continue;
+			freq = cstate->domain[domain->name];
 			if (limit && freq > limit)
 				return false;
 		}
-		domain++;
 	}
 
 	if (!volt)
