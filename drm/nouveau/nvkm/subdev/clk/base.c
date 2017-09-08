@@ -289,6 +289,53 @@ nvkm_cstate_new(struct nvkm_clk *clk, int idx, struct nvkm_pstate *pstate)
 /******************************************************************************
  * P-States
  *****************************************************************************/
+static struct nvkm_pstate *
+nvkm_pstate_find_best(struct nvkm_clk *clk, struct nvkm_pstate *start)
+{
+	struct nvkm_pstate *pstate;
+	u8 limit;
+
+	switch (clk->boost_mode) {
+	case NVKM_CLK_BOOST_NONE:
+		limit = clk->base_limit.pstate;
+		if (limit)
+			break;
+	case NVKM_CLK_BOOST_BIOS:
+		limit = clk->boost_limit.pstate;
+		break;
+	default:
+		limit = 0;
+		break;
+	}
+
+	if (!limit)
+		return start;
+
+	for (pstate = start; &pstate->head != &clk->states;
+	     pstate = list_entry(pstate->head.prev, typeof(*pstate), head)) {
+		if (limit >= pstate->id)
+			break;
+	}
+	return pstate;
+}
+
+static struct nvkm_pstate *
+nvkm_pstate_get(struct nvkm_clk *clk, int pstateid)
+{
+	struct nvkm_pstate *pstate;
+
+	switch (pstateid) {
+	case NVKM_CLK_PSTATE_DEFAULT:
+		return NULL;
+	default:
+		list_for_each_entry(pstate, &clk->states, head) {
+			if (pstate->id == pstateid)
+				return pstate;
+		}
+	}
+	return NULL;
+}
+
 static int
 nvkm_pstate_prog(struct nvkm_clk *clk, int pstate_id)
 {
@@ -301,20 +348,16 @@ nvkm_pstate_prog(struct nvkm_clk *clk, int pstate_id)
 	if (pstate_id == NVKM_CLK_PSTATE_DEFAULT)
 		return 0;
 
-	if (clk->pstate && clk->pstate->id == pstate_id) {
-		pstate = clk->pstate;
-		goto cstate;
-	}
-
-	list_for_each_entry(pstate, &clk->states, head) {
-		if (pstate->id == pstate_id)
-			break;
-	}
+	pstate = nvkm_pstate_get(clk, pstate_id);
+	pstate = nvkm_pstate_find_best(clk, pstate);
 
 	if (!pstate)
 		return -EINVAL;
 
-	nvkm_debug(subdev, "setting performance state %x\n", pstate_id);
+	if (clk->pstate && clk->pstate == pstate)
+		goto cstate;
+
+	nvkm_debug(subdev, "setting performance state %x\n", pstate->id);
 	clk->pstate = pstate;
 
 	nvkm_pcie_set_link(pci, pstate->pcie_speed, pstate->pcie_width);
