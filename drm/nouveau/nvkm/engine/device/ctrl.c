@@ -181,7 +181,7 @@ nvkm_control_mthd_boost_info(struct nvkm_control *ctrl, void *data, u32 size)
 	if (!clk)
 		return -ENODEV;
 
-	if (!clk->base_khz && !clk->boost_khz)
+	if (!clk->base_limit.max_khz && !clk->boost_limit.max_khz)
 		return -ENODEV;
 
 	nvif_ioctl(&ctrl->object, "control boost info size %d\n", size);
@@ -192,8 +192,8 @@ nvkm_control_mthd_boost_info(struct nvkm_control *ctrl, void *data, u32 size)
 		return ret;
 
 	args->v0.mode = clk->boost_mode;
-	args->v0.base_mhz = clk->base_khz / 2000;
-	args->v0.boost_mhz = clk->boost_khz / 2000;
+	args->v0.base_mhz = clk->base_limit.max_khz / 2000;
+	args->v0.boost_mhz = clk->boost_limit.max_khz / 2000;
 	args->v0.max_mhz = clk->max_khz / 2000;
 	return 0;
 }
@@ -210,7 +210,7 @@ nvkm_control_mthd_boost_set(struct nvkm_control *ctrl, void *data, u32 size)
 	if (!clk)
 		return -ENODEV;
 
-	if (!clk->base_khz && !clk->boost_khz)
+	if (!clk->base_limit.max_khz && !clk->boost_limit.max_khz)
 		return -ENODEV;
 
 	nvif_ioctl(&ctrl->object, "control boost set size %d\n", size);

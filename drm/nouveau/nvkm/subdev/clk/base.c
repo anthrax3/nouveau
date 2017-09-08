@@ -88,14 +88,22 @@ nvkm_cstate_valid(struct nvkm_clk *clk, struct nvkm_cstate *cstate,
 	while (domain && domain->name != nv_clk_src_max) {
 		if (domain->flags & NVKM_CLK_DOM_FLAG_VPSTATE) {
 			u32 freq = cstate->domain[domain->name];
+			u32 limit;
 			switch (clk->boost_mode) {
 			case NVKM_CLK_BOOST_NONE:
-				if (clk->base_khz && freq > clk->base_khz)
-					return false;
+				limit = clk->base_limit.max_khz;
+				if (limit)
+					break;
 			case NVKM_CLK_BOOST_BIOS:
-				if (clk->boost_khz && freq > clk->boost_khz)
-					return false;
+				limit = clk->boost_limit.max_khz;
+				break;
+			default:
+				limit = 0;
+				break;
 			}
+
+			if (limit && freq > limit)
+				return false;
 		}
 		domain++;
 	}
@@ -732,6 +740,14 @@ nvkm_clk_parse_max_temp(struct nvkm_clk *clk)
 		   clk->max_temp, clk->relax_temp);
 }
 
+static void
+nvkm_clk_fill_limit(struct nvkm_clk_limit *l,
+		    const struct nvbios_vpstate_entry *e)
+{
+	l->pstate = e->pstate;
+	l->max_khz = e->clock_mhz * 1000;
+}
+
 int
 nvkm_clk_ctor(const struct nvkm_clk_func *func, struct nvkm_device *device,
 	      int index, bool allow_reclock, struct nvkm_clk *clk)
@@ -745,11 +761,12 @@ nvkm_clk_ctor(const struct nvkm_clk_func *func, struct nvkm_device *device,
 	nvkm_subdev_ctor(&nvkm_clk, device, index, subdev);
 
 	if (bios && !nvbios_vpstate_parse(bios, &h)) {
-		struct nvbios_vpstate_entry base, boost;
-		if (!nvbios_vpstate_entry(bios, &h, h.boost_id, &boost))
-			clk->boost_khz = boost.clock_mhz * 1000;
-		if (!nvbios_vpstate_entry(bios, &h, h.base_id, &base))
-			clk->base_khz = base.clock_mhz * 1000;
+		struct nvbios_vpstate_entry vpe;
+
+		if (!nvbios_vpstate_entry(bios, &h, h.boost_id, &vpe))
+			nvkm_clk_fill_limit(&clk->boost_limit, &vpe);
+		if (!nvbios_vpstate_entry(bios, &h, h.base_id, &vpe))
+			nvkm_clk_fill_limit(&clk->base_limit, &vpe);
 	}
 
 	clk->func = func;
